@@ -118,28 +118,29 @@ class InvestmentAccount(BankAccount):
                         f"Недопустимый тип актива: {asset_type}. "
                         f"Допустимые: {self.VALID_ASSETS}"
                     )
-                if (isinstance(amount, bool)
-                    or not isinstance(amount, (int, float))
-                    or not math.isfinite(amount)
-                    or amount < 0):
+                if (isinstance(amount, bool) or not isinstance(amount, (int, float))
+                        or not math.isfinite(amount) or amount < 0):
                     raise ValueError(
-                        f"Сумма в {asset_type} должна быть "
-                        f"неотрицательным конечным числом"
+                        f"Сумма в {asset_type} должна быть неотрицательным конечным числом"
                     )
 
             self.portfolio = portfolio.copy()
 
     def invest(self, amount: float, asset_type: str):
+
+        if self.status == "frozen":
+            raise AccountFrozenError("Счёт заморожен, операции недоступны")
+        if self.status == "closed":
+            raise AccountClosedError("Счёт закрыт, операции недоступны")
+
         if asset_type not in self.VALID_ASSETS:
             raise InvalidOperationError(
                 f"Недопустимый тип актива: {asset_type}. "
                 f"Допустимые: {self.VALID_ASSETS}"
             )
 
-        if (isinstance(amount, bool)
-            or not isinstance(amount, (int, float))
-            or not math.isfinite(amount)
-            or amount <= 0):
+        if (isinstance(amount, bool) or not isinstance(amount, (int, float))
+                or not math.isfinite(amount) or amount <= 0):
             raise InvalidOperationError("Сумма инвестиции должна быть положительным конечным числом")
 
         if self._balance < amount:
@@ -150,16 +151,20 @@ class InvestmentAccount(BankAccount):
 
     def divest(self, amount: float, asset_type: str):
         """Вывести деньги из портфеля в баланс."""
+
+        if self.status == "frozen":
+            raise AccountFrozenError("Счёт заморожен, операции недоступны")
+        if self.status == "closed":
+            raise AccountClosedError("Счёт закрыт, операции недоступны")
+
         if asset_type not in self.VALID_ASSETS:
             raise InvalidOperationError(
                 f"Недопустимый тип актива: {asset_type}. "
                 f"Допустимые: {self.VALID_ASSETS}"
             )
 
-        if (isinstance(amount, bool)
-            or not isinstance(amount, (int, float))
-            or not math.isfinite(amount)
-            or amount <= 0):
+        if (isinstance(amount, bool) or not isinstance(amount, (int, float))
+                or not math.isfinite(amount) or amount <= 0):
             raise InvalidOperationError(
                 "Сумма вывода должна быть положительным конечным числом"
             )
@@ -174,6 +179,7 @@ class InvestmentAccount(BankAccount):
         self._balance += amount
 
     def project_yearly_growth(self, growth_rates: dict) -> float:
+
         if not isinstance(growth_rates, dict):
             raise InvalidOperationError("growth_rates должен быть словарём")
 
@@ -201,3 +207,160 @@ class InvestmentAccount(BankAccount):
         base = super().__str__()
         portfolio_items = [f"{k}={v}" for k, v in self.portfolio.items()]
         return f"{base} | Портфель: {', '.join(portfolio_items)}"
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ДЕМОНСТРАЦИЯ ПРОДВИНУТЫХ БАНКОВСКИХ СЧЕТОВ")
+    print("=" * 60)
+
+    # ============================================================
+    # [1] Создание счетов
+    # ============================================================
+    print("\n[1] Создание счетов")
+    print("-" * 60)
+
+    savings = SavingsAccount("Олег Монгол", 50000.0, min_balance=10000.0, monthly_interest_rate=0.05)
+    premium = PremiumAccount("Губка Боб", 100000.0, overdraft_limit=50000.0, fixed_fee=100.0)
+    investment = InvestmentAccount("Алло Бизнес", 500000.0)
+
+    print(f"Savings:    {savings}")
+    print(f"Premium:    {premium}")
+    print(f"Investment: {investment}")
+
+    # ============================================================
+    # [2] Операции над SavingsAccount
+    # ============================================================
+    print("\n[2] Операции над накопительным счётом")
+    print("-" * 60)
+
+    savings.deposit(20000)
+    print(f"После пополнения на 20000: {savings._balance}")  # 70000
+
+    savings.withdraw(50000)
+    print(f"После снятия 50000: {savings._balance}")  # 20000
+
+    # Попытка снять так, чтобы баланс упал ниже min_balance (10000)
+    print("\nПопытка снять 15000 (останется 5000 < 10000):")
+    try:
+        savings.withdraw(15000)
+    except InvalidOperationError as e:
+        print(f"Отклонено: {e}")
+    print(f"Баланс после попытки: {savings._balance}")  # 20000 (не изменился)
+
+    # Начисление процентов
+    savings.apply_monthly_interest()
+    print(f"\nПосле начисления 5%: {savings._balance}")  # 21000
+
+    # ============================================================
+    # [3] Операции над PremiumAccount
+    # ============================================================
+    print("\n[3] Операции над премиальным счётом")
+    print("-" * 60)
+
+    premium.withdraw(5000)
+    print(f"После снятия 5000 (+100 комиссия): {premium._balance}")  # 94900
+
+    # Снятие с уходом в овердрафт
+    premium.withdraw(120000)
+    print(f"После снятия 120000 (+100 комиссия): {premium._balance}")  # -25200 (ушли в минус)
+
+    # Попытка превысить лимит овердрафта
+    print("\nПопытка превысить лимит овердрафта:")
+    try:
+        premium.withdraw(100000)
+    except InsufficientFundsError as e:
+        print(f"Отклонено: {e}")
+    print(f"Баланс после попытки: {premium._balance}")  # -25200 (не изменился)
+
+    # ============================================================
+    # [4] Операции над InvestmentAccount
+    # ============================================================
+    print("\n[4] Операции над инвестиционным счётом")
+    print("-" * 60)
+
+    # Инвестиции
+    investment.invest(200000, "stocks")
+    investment.invest(150000, "bonds")
+    investment.invest(100000, "etf")
+    print(f"После инвестиций: {investment._balance}")  # 50000
+    print(f"Портфель: {investment.portfolio}")
+
+    # Попытка инвестировать больше, чем есть на балансе
+    print("\nПопытка инвестировать 100000 (на балансе только 50000):")
+    try:
+        investment.invest(100000, "stocks")
+    except InsufficientFundsError as e:
+        print(f"Отклонено: {e}")
+
+    # Попытка инвестировать в недопустимый актив
+    print("\nПопытка инвестировать в 'crypto' (недопустимый тип):")
+    try:
+        investment.invest(10000, "crypto")
+    except InvalidOperationError as e:
+        print(f"Отклонено: {e}")
+
+    # Прогноз прироста
+    growth_rates = {"stocks": 0.10, "bonds": 0.04, "etf": 0.07}
+    expected_growth = investment.project_yearly_growth(growth_rates)
+    print(f"\nОжидаемый годовой прирост: {expected_growth}")
+    # = 200000*0.10 + 150000*0.04 + 100000*0.07 = 20000 + 6000 + 7000 = 33000
+
+    # Вывод из портфеля
+    investment.divest(50000, "stocks")
+    print(f"\nПосле вывода 50000 из stocks: {investment._balance}")  # 100000
+    print(f"Портфель: {investment.portfolio}")
+
+    # Попытка вывести больше, чем есть в активе
+    print("\nПопытка вывести 200000 из bonds (есть только 150000):")
+    try:
+        investment.divest(200000, "bonds")
+    except InsufficientFundsError as e:
+        print(f"Отклонено: {e}")
+
+    # Снятие с баланса (работает как обычный счёт)
+    investment.withdraw(30000)
+    print(f"\nПосле снятия 30000 с баланса осталось: {investment._balance}")  # 70000
+
+    # ============================================================
+    # [5] Замороженные счета
+    # ============================================================
+    print("\n[5] Замороженные счета")
+    print("-" * 60)
+
+    # Замороженные версии каждого типа
+    frozen_savings = SavingsAccount("Замороженный", 50000.0, status="frozen")
+    frozen_premium = PremiumAccount("Замороженный", 50000.0, status="frozen")
+    frozen_investment = InvestmentAccount("Замороженный", 50000.0, status="frozen")
+
+    print("\nПопытки снятия с замороженных счетов:")
+    for name, account in [("Savings", frozen_savings),
+                          ("Premium", frozen_premium),
+                          ("Investment", frozen_investment)]:
+        try:
+            account.withdraw(1000)
+        except AccountFrozenError as e:
+            print(f"{name}: {e}")
+
+    print("\nПопытка инвестировать с замороженного счёта:")
+    try:
+        frozen_investment.invest(1000, "stocks")
+    except AccountFrozenError as e:
+        print(f"Investment: {e}")
+
+    # ============================================================
+    # [6] Полная информация о счетах
+    # ============================================================
+    print("\n[6] Полная информация о счетах")
+    print("-" * 60)
+
+    for name, account in [("Savings", savings),
+                          ("Premium", premium),
+                          ("Investment", investment)]:
+        print(f"\n{name}:")
+        for key, value in account.get_account_info().items():
+            print(f"  {key}: {value}")
+
+    print("\n" + "=" * 60)
+    print("ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА")
+    print("=" * 60)
