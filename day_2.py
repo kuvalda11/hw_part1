@@ -34,6 +34,11 @@ class SavingsAccount(BankAccount):
             raise InvalidOperationError(f"Нельзя снять: баланс упадёт ниже минимального ({self.min_balance})")
 
     def apply_monthly_interest(self):
+        if self.status == "frozen":
+            raise AccountFrozenError("Счёт заморожен, начисление процентов невозможно")
+        if self.status == "closed":
+            raise AccountClosedError("Счёт закрыт, начисление процентов невозможно")
+
         self._balance += self._balance * self.monthly_interest_rate
 
     def get_account_info(self) -> dict:
@@ -106,9 +111,11 @@ class InvestmentAccount(BankAccount):
 
         super().__init__(owner, balance, acc_id, status, currency)
 
-        if portfolio is None:
-            self.portfolio = {"stocks": 0, "bonds": 0, "etf": 0}
-        else:
+
+        self.portfolio = {"stocks": 0, "bonds": 0, "etf": 0}
+
+        if portfolio is not None:
+
             if not isinstance(portfolio, dict):
                 raise ValueError("Портфель должен быть словарём")
 
@@ -124,7 +131,7 @@ class InvestmentAccount(BankAccount):
                         f"Сумма в {asset_type} должна быть неотрицательным конечным числом"
                     )
 
-            self.portfolio = portfolio.copy()
+                self.portfolio[asset_type] = amount
 
     def invest(self, amount: float, asset_type: str):
 
@@ -146,8 +153,9 @@ class InvestmentAccount(BankAccount):
         if self._balance < amount:
             raise InsufficientFundsError(f"Недостаточно средств. Баланс: {self._balance}")
 
-        self._balance -= amount
+        # Атомарность
         self.portfolio[asset_type] += amount
+        self._balance -= amount
 
     def divest(self, amount: float, asset_type: str):
         """Вывести деньги из портфеля в баланс."""
@@ -360,6 +368,41 @@ if __name__ == "__main__":
         print(f"\n{name}:")
         for key, value in account.get_account_info().items():
             print(f"  {key}: {value}")
+
+    # ============================================================
+    # [7] Проверка исправлений: неполный портфель и статусы процентов
+    # ============================================================
+    print("\n[7] Проверка исправлений")
+    print("-" * 60)
+
+    # --- Неполный портфель ---
+    print("\nСоздание InvestmentAccount с неполным портфелем:")
+    partial = InvestmentAccount("Частичный Инвестор", 100000.0,
+                                portfolio={"stocks": 100})
+    print(f"Портфель после создания: {partial.portfolio}")
+    # Ожидаем: {"stocks": 100, "bonds": 0, "etf": 0}
+
+    print("\nИнвестирование в 'bonds' (которого не было в переданном словаре):")
+    partial.invest(5000, "bonds")
+    print(f"Портфель после invest(5000, 'bonds'): {partial.portfolio}")
+    print(f"Баланс: {partial._balance}")
+    # Ожидаем: {"stocks": 100, "bonds": 5000, "etf": 0}, баланс: 95000
+
+    # --- Начисление процентов на неактивных счетах ---
+    print("\nНачисление процентов на замороженном счёте:")
+    try:
+        frozen_savings.apply_monthly_interest()
+    except AccountFrozenError as e:
+        print(f"Отклонено: {e}")
+    print(f"Баланс после попытки: {frozen_savings._balance}")  # 50000 (не изменился)
+
+    print("\nНачисление процентов на закрытом счёте:")
+    closed_savings = SavingsAccount("Закрытый", 50000.0, status="closed")
+    try:
+        closed_savings.apply_monthly_interest()
+    except AccountClosedError as e:
+        print(f"Отклонено: {e}")
+    print(f"Баланс после попытки: {closed_savings._balance}")  # 50000 (не изменился)
 
     print("\n" + "=" * 60)
     print("ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА")
